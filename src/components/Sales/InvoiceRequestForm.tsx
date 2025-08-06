@@ -3,159 +3,128 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Receipt, Send } from "lucide-react";
+import { FileSignature, PlusCircle, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface InvoiceRequestFormProps {
   onSubmit: (invoice: any) => void;
 }
 
-export function InvoiceRequestForm({ onSubmit }: InvoiceRequestFormProps) {
-  const [formData, setFormData] = useState({
-    clientName: "",
-    productService: "",
-    description: "",
-    quantity: "",
-    unitPrice: "",
-    totalAmount: ""
-  });
+interface LineItem {
+  productName: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+}
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => {
-      const updated = { ...prev, [field]: value };
-      
-      // Auto-calculate total when quantity or unit price changes
-      if (field === "quantity" || field === "unitPrice") {
-        const qty = parseFloat(updated.quantity) || 0;
-        const price = parseFloat(updated.unitPrice) || 0;
-        updated.totalAmount = (qty * price).toFixed(2);
-      }
-      
-      return updated;
-    });
+export function InvoiceRequestForm({ onSubmit }: InvoiceRequestFormProps) {
+  const [clientName, setClientName] = useState("");
+  const [items, setItems] = useState<LineItem[]>([
+    { productName: "", description: "", quantity: "1", unitPrice: "0.00" }
+  ]);
+  const [totalAmount, setTotalAmount] = useState("0.00");
+
+  const handleItemChange = (index: number, field: keyof LineItem, value: string) => {
+    const newItems = [...items];
+    newItems[index][field] = value;
+    setItems(newItems);
+    calculateTotal(newItems);
   };
 
+  const addItem = () => {
+    setItems([...items, { productName: "", description: "", quantity: "1", unitPrice: "0.00" }]);
+  };
+
+  const removeItem = (index: number) => {
+    const newItems = items.filter((_, i) => i !== index);
+    setItems(newItems);
+    calculateTotal(newItems);
+  };
+
+  const calculateTotal = (currentItems: LineItem[]) => {
+    const total = currentItems.reduce((acc, item) => {
+      const quantity = parseFloat(item.quantity) || 0;
+      const unitPrice = parseFloat(item.unitPrice) || 0;
+      return acc + (quantity * unitPrice);
+    }, 0);
+    setTotalAmount(total.toFixed(2));
+  };
+  
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     const invoiceRequest = {
-      id: `INV-${Date.now()}`,
-      ...formData,
+      id: `INV-REQ-${Date.now()}`,
+      clientName: clientName,
+      items: items,
+      totalAmount: totalAmount,
       status: "Waiting",
-      submittedBy: "Current User",
-      submittedDate: new Date().toISOString(),
-      paymentStatus: "Unpaid",
-      invoicePdfLink: null
     };
     
     onSubmit(invoiceRequest);
-    toast.success("Invoice request submitted to Finance!");
+    toast.success("Invoice requested successfully!");
     
-    // Reset form
-    setFormData({
-      clientName: "",
-      productService: "",
-      description: "",
-      quantity: "",
-      unitPrice: "",
-      totalAmount: ""
-    });
+    setClientName("");
+    setItems([{ productName: "", description: "", quantity: "1", unitPrice: "0.00" }]);
+    setTotalAmount("0.00");
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center space-x-2">
-          <Receipt className="h-5 w-5" />
-          <span>Request Invoice</span>
-        </CardTitle>
-        <CardDescription>
-          Submit a direct invoice request to Finance department
-        </CardDescription>
+        <CardTitle className="flex items-center space-x-2"><FileSignature className="h-5 w-5" /><span>Request New Invoice</span></CardTitle>
+        <CardDescription>Directly request an invoice for a client.</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="clientName">Client Name *</Label>
-              <Input
-                id="clientName"
-                value={formData.clientName}
-                onChange={(e) => handleInputChange("clientName", e.target.value)}
-                placeholder="Enter client company name"
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="productService">Product/Service *</Label>
-              <Input
-                id="productService"
-                value={formData.productService}
-                onChange={(e) => handleInputChange("productService", e.target.value)}
-                placeholder="Medical equipment or service"
-                required
-              />
-            </div>
-          </div>
-
           <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
-            <Textarea
-              id="description"
-              value={formData.description}
-              onChange={(e) => handleInputChange("description", e.target.value)}
-              placeholder="Detailed description of the product or service"
-              rows={3}
-            />
+            <Label htmlFor="inv-clientName">Client Name *</Label>
+            <Input id="inv-clientName" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Enter client company name" required />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="quantity">Quantity *</Label>
-              <Input
-                id="quantity"
-                type="number"
-                value={formData.quantity}
-                onChange={(e) => handleInputChange("quantity", e.target.value)}
-                placeholder="0"
-                min="1"
-                required
-              />
+          <div className="border-t pt-4"><h3 className="text-lg font-medium">Items</h3></div>
+          
+          {items.map((item, index) => (
+            <div key={index} className="p-4 border rounded-lg space-y-4 relative">
+              {items.length > 1 && (
+                <Button type="button" variant="ghost" size="icon" className="absolute top-2 right-2" onClick={() => removeItem(index)}>
+                  <Trash2 className="h-4 w-4 text-red-500" />
+                </Button>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor={`inv-productName-${index}`}>Product/Service *</Label>
+                  <Input id={`inv-productName-${index}`} value={item.productName} onChange={(e) => handleItemChange(index, "productName", e.target.value)} placeholder="Medical equipment or service" required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`inv-description-${index}`}>Description</Label>
+                  <Input id={`inv-description-${index}`} value={item.description} onChange={(e) => handleItemChange(index, "description", e.target.value)} placeholder="Detailed description" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <div className="space-y-2">
+                  <Label htmlFor={`inv-quantity-${index}`}>Quantity *</Label>
+                  <Input id={`inv-quantity-${index}`} type="number" value={item.quantity} onChange={(e) => handleItemChange(index, "quantity", e.target.value)} placeholder="0" min="1" required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`inv-unitPrice-${index}`}>Unit Price ($) *</Label>
+                  <Input id={`inv-unitPrice-${index}`} type="number" step="0.01" value={item.unitPrice} onChange={(e) => handleItemChange(index, "unitPrice", e.target.value)} placeholder="0.00" min="0" required />
+                </div>
+              </div>
             </div>
+          ))}
 
-            <div className="space-y-2">
-              <Label htmlFor="unitPrice">Unit Price ($) *</Label>
-              <Input
-                id="unitPrice"
-                type="number"
-                step="0.01"
-                value={formData.unitPrice}
-                onChange={(e) => handleInputChange("unitPrice", e.target.value)}
-                placeholder="0.00"
-                min="0"
-                required
-              />
-            </div>
+          <div className="flex justify-start">
+            <Button type="button" variant="outline" onClick={addItem} className="flex items-center space-x-2"><PlusCircle className="h-4 w-4" /><span>Add Another Item</span></Button>
+          </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="totalAmount">Total Amount ($)</Label>
-              <Input
-                id="totalAmount"
-                value={formData.totalAmount}
-                readOnly
-                className="bg-muted"
-                placeholder="0.00"
-              />
-            </div>
+          <div className="flex justify-end items-center space-x-4 border-t pt-4">
+            <span className="text-lg font-semibold">Grand Total:</span>
+            <span className="text-xl font-bold">${totalAmount}</span>
           </div>
 
           <div className="flex justify-end">
-            <Button type="submit" className="flex items-center space-x-2">
-              <Send className="h-4 w-4" />
-              <span>Submit to Finance</span>
-            </Button>
+            <Button type="submit" className="flex items-center space-x-2"><Send className="h-4 w-4" /><span>Submit Invoice Request</span></Button>
           </div>
         </form>
       </CardContent>
