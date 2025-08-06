@@ -28,35 +28,144 @@ const Index = () => {
     setCurrentUser({ name: "", role: "" });
   };
 
-  const handleQuotationSubmit = (quotation: any) => {
-    setQuotations(prev => [...prev, quotation]);
+// This is the new function that sends data to Google Sheets
+const handleQuotationSubmit = async (quotation: any) => {
+  // Make sure your correct URL is here
+  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzleToSqw6zAX25KWZ0UnLE4lmiIe2UMNgNAqoFQACx4kwYTSTF9fGx-JgjEG6mk0Ah/exec"; 
+
+  const payload = {
+    type: "quotation",
+    quoteId: quotation.id,
+    clientName: quotation.clientName,
+    items: quotation.items,
+    totalAmount: quotation.totalAmount
   };
 
-  const handleInvoiceSubmit = (invoice: any) => {
-    setInvoices(prev => [...prev, invoice]);
-  };
+  try {
+    const response = await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'cors',
+      cache: 'no-cache',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
 
-  const handleQuotationApprove = (id: string) => {
-    setQuotations(prev => prev.map(q => 
-      q.id === id ? { ...q, status: "Approved" } : q
-    ));
-    // Convert to invoice request
-    const quote = quotations.find(q => q.id === id);
-    if (quote) {
-      const invoice = {
-        id: `INV-${Date.now()}`,
-        quoteId: id,
-        clientName: quote.clientName,
-        productService: quote.productName,
-        totalAmount: quote.totalAmount,
-        status: "Waiting",
-        submittedBy: quote.submittedBy,
-        submittedDate: new Date().toISOString(),
-        paymentStatus: "Unpaid"
+    // --- THIS IS THE KEY UPGRADE ---
+    // Check if the script was successful AND sent back the URLs
+    if (result.status === "success" && result.pdfUrl) {
+      console.log("PDF created successfully! URL:", result.pdfUrl);
+
+      // Create the new quotation object for our UI state,
+      // now including the pdfUrl and docUrl from the response.
+      const newQuotationForState = {
+        ...quotation,
+        pdfUrl: result.pdfUrl,
+        docUrl: result.docUrl 
       };
-      setInvoices(prev => [...prev, invoice]);
+      
+      // Add the complete quotation object (with URLs) to our local state.
+      setQuotations(prev => [...prev, newQuotationForState]);
+
+    } else {
+      // If something went wrong on the backend
+      alert("Could not generate PDF: " + result.message);
+      // We can still add the quote to the UI but without a PDF link
+      setQuotations(prev => [...prev, quotation]);
     }
+  } catch (error) {
+    console.error('Error during PDF generation:', error);
+    alert("A network error occurred while generating the PDF.");
+  }
+};
+
+const handleInvoiceSubmit = (invoice: any) => {
+  // Step 1 (Immediate Action): Add the new invoice object to the local state.
+  // This makes it instantly available to the Finance component.
+  setInvoices(prev => [...prev, invoice]);
+
+  // Step 2 (Secondary Action): Try to save a copy to Google Sheets.
+  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzleToSqw6zAX25KWZ0UnLE4lmiIe2UMNgNAqoFQACx4kwYTSTF9fGx-JgjEG6mk0Ah/exec"; // <-- Make sure this is your latest URL
+  const payload = {
+    type: "invoiceRequest",
+    clientName: invoice.clientName,
+    items: invoice.items,
+    totalAmount: invoice.totalAmount
   };
+
+  fetch(GOOGLE_SCRIPT_URL, {
+    method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.status === "success") {
+      console.log("Backend direct invoice request successful.");
+    } else {
+      console.error("Backend direct invoice request failed:", data.message);
+    }
+  })
+  .catch(error => console.error("Network error on direct invoice request:", error));
+};
+
+
+const handleQuotationApprove = (id: string) => {
+  let approvedQuoteData: any = null;
+
+  // Step 1: Update the local quotations state immediately.
+  // This also finds the full data of the quote we just approved.
+  const updatedQuotations = quotations.map(q => {
+    if (q.id === id) {
+      approvedQuoteData = { ...q, status: "Approved" };
+      return approvedQuoteData;
+    }
+    return q;
+  });
+  setQuotations(updatedQuotations);
+
+  // Step 2: If the quote was found, create the new invoice object and add it to the local invoices state.
+  // THIS is the logic that makes it appear for the Finance user instantly.
+  if (approvedQuoteData) {
+    const invoiceForUi = {
+      id: `INV-${Date.now()}`,
+      quoteId: id,
+      clientName: approvedQuoteData.clientName,
+      items: approvedQuoteData.items,
+      totalAmount: approvedQuoteData.totalAmount,
+      status: "Waiting",
+      submittedBy: approvedQuoteData.submittedBy,
+      submittedDate: new Date().toISOString(),
+      paymentStatus: "Unpaid"
+    };
+    setInvoices(prev => [...prev, invoiceForUi]);
+
+    // Step 3 (Secondary Action): Now, try to save this to Google Sheets.
+    // This no longer blocks the UI.
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzleToSqw6zAX25KWZ0UnLE4lmiIe2UMNgNAqoFQACx4kwYTSTF9fGx-JgjEG6mk0Ah/exec"; // <-- Make sure this is your latest URL
+    const payload = {
+      type: "updateQuoteStatus",
+      quoteId: id,
+      newStatus: "Approved"
+    };
+    
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === "success") {
+        console.log("Backend approval and invoice creation successful.");
+      } else {
+        console.error("Backend update failed:", data.message);
+      }
+    })
+    .catch(error => console.error("Network error on quote approval:", error));
+
+  } else {
+    console.error("Logic Error: Could not find the quote to approve in the local state.");
+  }
+};
 
   const handleUploadInvoice = (id: string, file: File) => {
     setInvoices(prev => prev.map(inv => 
